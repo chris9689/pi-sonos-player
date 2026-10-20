@@ -111,7 +111,7 @@ def play():
         artist = info.get('channel', 'YouTube')
 
         local_ip = get_local_ip()
-        stream_url = f"http://{local_ip}:{PORT}/api/stream/{video_id}"
+        stream_url = f"http://{local_ip}:{PORT}/api/stream/{video_id}.m4a"
 
         logger.info(f"Commanding Sonos '{speaker_id}' to play stream: {stream_url}")
         status = play_audio_stream(speaker_id, stream_url, title, artist)
@@ -161,13 +161,19 @@ def speaker_status():
     return jsonify({'status': 'ok', 'speaker': _format_speaker_info(sp)})
 
 
-@app.route('/api/stream/<video_id>')
+@app.route('/api/stream/<path:video_id>')
 def stream_audio(video_id):
     """
     HTTP Audio Stream Proxy for Sonos UPnP playback.
     Fetches the direct YouTube audio stream and pipes it to Sonos,
     forwarding HTTP Range requests for seamless seeking and buffering.
     """
+    # Strip audio extension if passed (e.g. .m4a or .mp3)
+    for ext in ('.m4a', '.mp3', '.mp4', '.aac', '.webm'):
+        if video_id.endswith(ext):
+            video_id = video_id[:-len(ext)]
+            break
+
     if not extract_video_id(video_id):
         return "Invalid video ID", 400
 

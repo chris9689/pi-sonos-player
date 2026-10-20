@@ -7,7 +7,9 @@ SERVICE_NAME="pi-sonos-player.service"
 echo "=== Deploying Pi-Sonos-Player on Raspberry Pi ==="
 cd "$APP_DIR"
 
-# 1. Ensure Python 3 virtual environment exists
+# 1. Ensure required system packages and Python virtual environment exist
+sudo apt-get install -y --no-install-recommends libxslt1.1
+
 if [ ! -d "venv" ]; then
     echo "Creating Python virtual environment..."
     python3 -m venv venv

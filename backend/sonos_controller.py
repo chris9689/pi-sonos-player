@@ -125,13 +125,14 @@ def play_audio_stream(identifier: str, stream_url: str, title: str, artist: str 
     if not sp:
         raise ValueError(f"Sonos speaker '{identifier}' not found.")
 
-    # DIDL-Lite metadata template
+    # DIDL-Lite metadata template with resource protocolInfo
     meta_template = (
         '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
         'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
         'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
         'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">'
-        '<item id="1" parentID="0" restricted="1">'
+        '<item id="-1" parentID="-1" restricted="1">'
+        '<res protocolInfo="http-get:*:audio/mp4:*">{uri}</res>'
         '<dc:title>{title}</dc:title>'
         '<dc:creator>{artist}</dc:creator>'
         '<upnp:class>object.item.audioItem.musicTrack</upnp:class>'
@@ -141,7 +142,8 @@ def play_audio_stream(identifier: str, stream_url: str, title: str, artist: str 
     # Basic XML escaping
     clean_title = (title or "YouTube Audio").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
     clean_artist = (artist or "YouTube").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-    metadata = meta_template.format(title=clean_title, artist=clean_artist)
+    clean_uri = stream_url.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    metadata = meta_template.format(uri=clean_uri, title=clean_title, artist=clean_artist)
 
     try:
         # Stop existing playback if any

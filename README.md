@@ -45,7 +45,7 @@ Run these commands in an SSH session on the Raspberry Pi:
 ### Step 1: Install System Dependencies
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pip git ffmpeg
+sudo apt install -y python3-venv python3-pip git ffmpeg libxslt1.1
 ```
 
 ### Step 2: Clone the Repository
