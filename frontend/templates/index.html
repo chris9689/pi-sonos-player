@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pi to Sonos Player</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%22><text y=%2222%22 font-size=%2220%22>🔊</text></svg>">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <span class="icon">📻</span>
+        <div>
+          <h1>Pi &bull; Sonos Player</h1>
+          <p class="subtitle">Stream YouTube audio directly to your Sonos speakers</p>
+        </div>
+      </div>
+      <div id="service-status" class="badge badge-checking">Connecting...</div>
+    </header>
+
+    <!-- Error/Alert Banner -->
+    <div id="alert-banner" class="alert-banner hidden"></div>
+
+    <!-- Main Content Grid -->
+    <main class="main-grid">
+      <!-- Left / Top Column: Speaker Selection & Now Playing -->
+      <section class="card">
+        <div class="card-header">
+          <h2>1. Select Sonos Speaker</h2>
+          <button id="refresh-speakers-btn" class="btn btn-secondary btn-sm" title="Rescan Network">
+            <span class="btn-icon">🔄</span> Scan
+          </button>
+        </div>
+        <div id="speakers-loading" class="loading-state hidden">Searching for Sonos devices...</div>
+        <div id="speakers-list" class="speakers-list">
+          <!-- Populated dynamically via JS -->
+        </div>
+
+        <!-- Volume & Quick Controls for Selected Speaker -->
+        <div id="speaker-controls-panel" class="speaker-controls-panel disabled">
+          <div class="volume-row">
+            <span class="volume-label">🔊 Volume (<span id="volume-val">--</span>%)</span>
+            <input type="range" id="volume-slider" min="0" max="100" value="20" class="slider">
+          </div>
+          <div class="quick-transport-btns">
+            <button id="btn-pause" class="btn btn-secondary">⏸ Pause</button>
+            <button id="btn-resume" class="btn btn-secondary">▶ Resume</button>
+            <button id="btn-stop" class="btn btn-danger">⏹ Stop</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right / Bottom Column: YouTube URL & Playback -->
+      <section class="card">
+        <div class="card-header">
+          <h2>2. YouTube Audio</h2>
+        </div>
+
+        <form id="url-form" class="url-form" onsubmit="return false;">
+          <label for="yt-url" class="field-label">YouTube Video URL</label>
+          <div class="input-group">
+            <input 
+              type="text" 
+              id="yt-url" 
+              placeholder="e.g. https://www.youtube.com/watch?v=..." 
+              autocomplete="off" 
+              spellcheck="false"
+              class="text-input"
+            >
+            <button type="button" id="load-info-btn" class="btn btn-secondary">Fetch Info</button>
+          </div>
+        </form>
+
+        <!-- Preview Card -->
+        <div id="video-preview" class="video-preview hidden">
+          <img id="preview-thumbnail" src="" alt="Thumbnail" class="preview-thumb">
+          <div class="preview-details">
+            <h3 id="preview-title" class="preview-title">Video Title</h3>
+            <p id="preview-channel" class="preview-channel">Channel</p>
+            <span id="preview-duration" class="badge badge-duration">0:00</span>
+          </div>
+        </div>
+
+        <!-- Big Play Action Button -->
+        <div class="action-box">
+          <button id="play-btn" class="btn btn-primary btn-large" disabled>
+            <span class="btn-icon">▶</span>
+            <span id="play-btn-text">Select a speaker & video</span>
+          </button>
+          <div id="play-spinner" class="spinner hidden"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Now Playing Persistent Footer / Section -->
+    <section class="card now-playing-card">
+      <div class="now-playing-header">
+        <span class="pulse-indicator" id="playback-pulse"></span>
+        <span class="label">Now Playing Status:</span>
+        <span id="playback-state-badge" class="badge badge-idle">IDLE</span>
+      </div>
+      <div class="now-playing-body">
+        <div class="np-info">
+          <strong id="np-title">No active stream</strong>
+          <span id="np-speaker" class="np-sub">Speaker: None</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

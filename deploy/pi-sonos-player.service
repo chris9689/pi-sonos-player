@@ -1,0 +1,25 @@
+[Unit]
+Description=Raspberry Pi YouTube-to-Sonos Web Player
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chris
+Group=chris
+WorkingDirectory=/home/chris/pi-sonos-player/backend
+ExecStart=/home/chris/pi-sonos-player/venv/bin/python app.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=PORT=5000
+Environment=HOST=0.0.0.0
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/chris/pi-sonos-player /tmp
+
+[Install]
+WantedBy=multi-user.target
