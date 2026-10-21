@@ -1,42 +1,54 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-APP_DIR="/home/chris/pi-sonos-player"
+# Paths and user are derived from where the repo lives and who runs the script
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVICE_USER="${SUDO_USER:-$(id -un)}"
+SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
 SERVICE_NAME="pi-sonos-player.service"
 
-echo "=== Deploying Pi-Sonos-Player on Raspberry Pi ==="
+echo "=== Deploying Pi-Sonos-Player ==="
+echo "    Directory: $APP_DIR"
+echo "    User:      $SERVICE_USER"
 cd "$APP_DIR"
 
-# 1. Ensure required system packages and Python virtual environment exist
-sudo apt-get install -y --no-install-recommends libxslt1.1
+# 1. System packages (libxslt for lxml used by SoCo)
+sudo apt-get install -y --no-install-recommends python3-venv libxslt1.1
 
-if [ ! -d "venv" ]; then
+if [ ! -d venv ]; then
     echo "Creating Python virtual environment..."
     python3 -m venv venv
 fi
 
-# 2. Upgrade pip and install pinned requirements
+# 2. Python dependencies (yt-dlp is upgraded every deploy; YouTube changes often)
 echo "Installing / updating dependencies..."
 ./venv/bin/pip install --upgrade pip
-./venv/bin/pip install -r backend/requirements.txt
+./venv/bin/pip install --upgrade -r backend/requirements.txt
 
-# 3. Install / update systemd service unit
+[ -f .env ] || cp .env.example .env
+mkdir -p .cache
+
+# 3. Render and install systemd unit
 echo "Configuring systemd service..."
-sudo cp deploy/pi-sonos-player.service /etc/systemd/system/
+sed -e "s|__APP_DIR__|$APP_DIR|g" \
+    -e "s|__USER__|$SERVICE_USER|g" \
+    -e "s|__GROUP__|$SERVICE_GROUP|g" \
+    deploy/pi-sonos-player.service | sudo tee "/etc/systemd/system/$SERVICE_NAME" > /dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 
-# 4. Wait briefly and verify status
-sleep 2
+# 4. Verify
+sleep 3
 if sudo systemctl is-active --quiet "$SERVICE_NAME"; then
-    PI_IP=$(hostname -I | awk '{print $1}')
+    PORT="$(grep -E '^PORT=' .env | cut -d= -f2 || true)"
+    PI_IP="$(hostname -I | awk '{print $1}')"
     echo "====================================================="
     echo " SUCCESS: Service is running!"
-    echo " Open in your browser: http://${PI_IP}:5000"
+    echo " Open in your browser: http://${PI_IP}:${PORT:-5000}"
     echo "====================================================="
 else
-    echo " ERROR: Service failed to start. Showing recent logs:"
+    echo " ERROR: Service failed to start. Recent logs:"
     sudo journalctl -u "$SERVICE_NAME" -n 25 --no-pager
     exit 1
 fi

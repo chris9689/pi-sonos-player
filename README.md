@@ -14,7 +14,7 @@ Before committing to this architecture, **Music Assistant** was evaluated:
 
 ### Selected Architecture
 A **native Python service** using:
-1. **Flask (Python 3.13):** Minimal RAM footprint (~25 MB total).
+1. **Flask + Waitress (Python 3.13):** Minimal RAM footprint (~25 MB total), production-grade threaded WSGI server.
 2. **SoCo (Sonos Controller):** LAN discovery and UPnP transport control for all Sonos speakers.
 3. **yt-dlp + Stream Proxy:** Extracts direct AAC audio streams (format 140: 128kbps AAC-LC) and proxies HTTP chunks with Range header support directly to Sonos. This bypasses YouTube SSL/cipher restrictions on older Sonos players, uses **0% CPU** (pure network I/O pass-through), and causes zero SD card write wear.
 
@@ -45,13 +45,13 @@ Run these commands in an SSH session on the Raspberry Pi:
 ### Step 1: Install System Dependencies
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pip git ffmpeg libxslt1.1
+sudo apt install -y python3-venv python3-pip git libxslt1.1
 ```
 
 ### Step 2: Clone the Repository
 ```bash
-git clone <YOUR_GITHUB_REPO_URL> /home/chris/pi-sonos-player
-cd /home/chris/pi-sonos-player
+git clone https://github.com/chris9689/pi-sonos-player ~/pi-sonos-player
+cd ~/pi-sonos-player
 ```
 
 ### Step 3: Run the Automated Deploy Script
@@ -59,13 +59,14 @@ cd /home/chris/pi-sonos-player
 bash deploy/deploy.sh
 ```
 
-The script sets up the Python virtual environment, installs dependencies, registers the systemd service, and starts it automatically.
+The script detects the repo location and current user, sets up the Python virtual environment, creates `.env` from `.env.example`, registers the systemd service, and starts it automatically.
 
 Access the web interface at:
 ```
 http://<PI_IP>:5000
-# Example: http://192.168.178.154:5000
 ```
+
+Tip: on your phone, open the page and use *Add to Home Screen*. You can also prefill a link via `http://<PI_IP>:5000/?url=<youtube link>` (handy for iOS Shortcuts / Android share actions).
 
 ---
 
@@ -80,7 +81,7 @@ This repository is designed to be edited on a development workstation (e.g., Win
 ### Editing on Windows
 1. Clone the repository on Windows:
    ```powershell
-   git clone <YOUR_GITHUB_REPO_URL>
+   git clone https://github.com/chris9689/pi-sonos-player
    cd pi-sonos-player
    ```
 2. Make your edits to frontend (`frontend/`) or backend (`backend/`).
@@ -94,14 +95,19 @@ This repository is designed to be edited on a development workstation (e.g., Win
 ### Updating the Raspberry Pi
 1. SSH into the Pi:
    ```powershell
-   ssh chris@192.168.178.154
+   ssh <USER>@<PI_IP>
    ```
 2. Pull and restart:
    ```bash
-   cd /home/chris/pi-sonos-player
+   cd ~/pi-sonos-player
    git pull
    bash deploy/deploy.sh
    ```
+
+Alternatively, push the current commit directly without GitHub:
+```powershell
+.\sync_to_pi.ps1 -PiHost <PI_IP> -User <USER> -Deploy
+```
 
 ---
 

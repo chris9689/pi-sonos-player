@@ -2,115 +2,94 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pi to Sonos Player</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%22><text y=%2222%22 font-size=%2220%22>🔊</text></svg>">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sonos Tube">
+  <title>Pi &bull; Sonos Player</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><text y=%2220%22 font-size=%2220%22>🔊</text></svg>">
 </head>
 <body>
-  <div class="app-container">
-    <!-- Header -->
-    <header class="header">
+  <div class="app">
+    <header class="topbar">
       <div class="brand">
-        <span class="icon">📻</span>
-        <div>
-          <h1>Pi &bull; Sonos Player</h1>
-          <p class="subtitle">Stream YouTube audio directly to your Sonos speakers</p>
-        </div>
+        <span class="logo" aria-hidden="true">▶</span>
+        <h1>Sonos Tube</h1>
       </div>
-      <div id="service-status" class="badge badge-checking">Connecting...</div>
+      <span id="service-status" class="status-dot" title="Connecting..."></span>
     </header>
 
-    <!-- Error/Alert Banner -->
-    <div id="alert-banner" class="alert-banner hidden"></div>
-
-    <!-- Main Content Grid -->
-    <main class="main-grid">
-      <!-- Left / Top Column: Speaker Selection & Now Playing -->
-      <section class="card">
-        <div class="card-header">
-          <h2>1. Select Sonos Speaker</h2>
-          <button id="refresh-speakers-btn" class="btn btn-secondary btn-sm" title="Rescan Network">
-            <span class="btn-icon">🔄</span> Scan
-          </button>
-        </div>
-        <div id="speakers-loading" class="loading-state hidden">Searching for Sonos devices...</div>
-        <div id="speakers-list" class="speakers-list">
-          <!-- Populated dynamically via JS -->
-        </div>
-
-        <!-- Volume & Quick Controls for Selected Speaker -->
-        <div id="speaker-controls-panel" class="speaker-controls-panel disabled">
-          <div class="volume-row">
-            <span class="volume-label">🔊 Volume (<span id="volume-val">--</span>%)</span>
-            <input type="range" id="volume-slider" min="0" max="100" value="20" class="slider">
-          </div>
-          <div class="quick-transport-btns">
-            <button id="btn-pause" class="btn btn-secondary">⏸ Pause</button>
-            <button id="btn-resume" class="btn btn-secondary">▶ Resume</button>
-            <button id="btn-stop" class="btn btn-danger">⏹ Stop</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Right / Bottom Column: YouTube URL & Playback -->
-      <section class="card">
-        <div class="card-header">
-          <h2>2. YouTube Audio</h2>
-        </div>
-
-        <form id="url-form" class="url-form" onsubmit="return false;">
-          <label for="yt-url" class="field-label">YouTube Video URL</label>
-          <div class="input-group">
-            <input 
-              type="text" 
-              id="yt-url" 
-              placeholder="e.g. https://www.youtube.com/watch?v=..." 
-              autocomplete="off" 
-              spellcheck="false"
-              class="text-input"
-            >
-            <button type="button" id="load-info-btn" class="btn btn-secondary">Fetch Info</button>
-          </div>
-        </form>
-
-        <!-- Preview Card -->
-        <div id="video-preview" class="video-preview hidden">
-          <img id="preview-thumbnail" src="" alt="Thumbnail" class="preview-thumb">
-          <div class="preview-details">
-            <h3 id="preview-title" class="preview-title">Video Title</h3>
-            <p id="preview-channel" class="preview-channel">Channel</p>
-            <span id="preview-duration" class="badge badge-duration">0:00</span>
-          </div>
-        </div>
-
-        <!-- Big Play Action Button -->
-        <div class="action-box">
-          <button id="play-btn" class="btn btn-primary btn-large" disabled>
-            <span class="btn-icon">▶</span>
-            <span id="play-btn-text">Select a speaker & video</span>
-          </button>
-          <div id="play-spinner" class="spinner hidden"></div>
-        </div>
-      </section>
-    </main>
-
-    <!-- Now Playing Persistent Footer / Section -->
-    <section class="card now-playing-card">
-      <div class="now-playing-header">
-        <span class="pulse-indicator" id="playback-pulse"></span>
-        <span class="label">Now Playing Status:</span>
-        <span id="playback-state-badge" class="badge badge-idle">IDLE</span>
+    <!-- Speakers -->
+    <section class="section">
+      <div class="section-head">
+        <h2>Speaker</h2>
+        <button id="refresh-speakers-btn" class="icon-btn" aria-label="Rescan speakers" title="Rescan">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        </button>
       </div>
-      <div class="now-playing-body">
-        <div class="np-info">
-          <strong id="np-title">No active stream</strong>
-          <span id="np-speaker" class="np-sub">Speaker: None</span>
-        </div>
+      <div id="speakers-list" class="chips" role="radiogroup" aria-label="Sonos speakers">
+        <div class="chip skeleton"></div><div class="chip skeleton"></div>
       </div>
+    </section>
+
+    <!-- YouTube URL -->
+    <section class="section">
+      <div class="section-head">
+        <h2>YouTube</h2>
+      </div>
+      <form id="url-form" class="url-form" autocomplete="off">
+        <div class="input-wrap">
+          <input type="text" id="yt-url" inputmode="url" enterkeyhint="go"
+                 placeholder="Paste a YouTube link" spellcheck="false" autocapitalize="off">
+          <button type="button" id="clear-btn" class="input-btn hidden" aria-label="Clear">✕</button>
+          <button type="button" id="paste-btn" class="input-btn paste hidden">Paste</button>
+        </div>
+
+        <div id="video-preview" class="preview hidden">
+          <img id="preview-thumb" alt="" loading="lazy">
+          <div class="preview-text">
+            <div id="preview-title" class="preview-title"></div>
+            <div id="preview-channel" class="preview-sub"></div>
+          </div>
+        </div>
+
+        <button type="submit" id="play-btn" class="play-btn" disabled>
+          <span id="play-btn-text">Select a speaker</span>
+        </button>
+      </form>
     </section>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- Now playing bar -->
+  <footer class="player" id="player">
+    <div class="player-info">
+      <span id="playback-pulse" class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div class="player-text">
+        <div id="np-title" class="np-title">Nothing playing</div>
+        <div id="np-sub" class="np-sub">—</div>
+      </div>
+    </div>
+    <div class="player-controls">
+      <button id="btn-toggle" class="ctrl-btn" aria-label="Play/Pause" disabled>
+        <svg id="icon-play" viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+        <svg id="icon-pause" class="hidden" viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+      <button id="btn-stop" class="ctrl-btn secondary" aria-label="Stop" disabled>
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
+      </button>
+      <div class="volume">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.47 4.47 0 0 0 16.5 12z"/></svg>
+        <input type="range" id="volume-slider" min="0" max="100" value="20" aria-label="Volume" disabled>
+        <span id="volume-val" class="vol-val">--</span>
+      </div>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

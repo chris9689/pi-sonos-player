@@ -1,15 +1,31 @@
-# Sync local project to Raspberry Pi
-$env:SSH_ASKPASS = "C:\Users\chg68\.gemini\antigravity\brain\b8e3a847-0dec-4eb7-be58-7c9ca9f10370\scratch\askpass.exe"
-$env:SSH_ASKPASS_REQUIRE = "force"
-$env:DISPLAY = "localhost:0.0"
+# Sync the local working copy to the Raspberry Pi over SSH (alternative to git pull on the Pi).
+# Usage: .\sync_to_pi.ps1 -PiHost 192.168.1.50 [-User pi] [-RemoteDir pi-sonos-player] [-Deploy]
+param(
+    [Parameter(Mandatory = $true)][string]$PiHost,
+    [string]$User = $env:PI_USER,
+    [string]$RemoteDir = "pi-sonos-player",
+    [switch]$Deploy
+)
 
-$source = "C:\Users\chg68\.gemini\antigravity\scratch\pi-sonos-player"
-$target = "chris@192.168.178.154:/home/chris/"
+$ErrorActionPreference = "Stop"
+if (-not $User) { $User = "pi" }
+$target = "$User@$PiHost"
 
-Write-Host "Creating target folder on Pi..."
-& ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile="NUL" chris@192.168.178.154 "mkdir -p /home/chris/pi-sonos-player"
+# Only ship tracked files (no venv, .env or caches)
+$archive = Join-Path $env:TEMP "pi-sonos-player.tar"
+git -C $PSScriptRoot archive --format=tar -o $archive HEAD
+if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
 
-Write-Host "Copying files to Pi..."
-& scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile="NUL" "$source\*" "$target/pi-sonos-player/"
+try {
+    Write-Host "Copying to ${target}:~/$RemoteDir ..."
+    scp $archive "${target}:/tmp/pi-sonos-player.tar"
+    ssh $target "mkdir -p ~/$RemoteDir && tar -xf /tmp/pi-sonos-player.tar -C ~/$RemoteDir && rm /tmp/pi-sonos-player.tar"
 
-Write-Host "Sync completed successfully!"
+    if ($Deploy) {
+        ssh -t $target "bash ~/$RemoteDir/deploy/deploy.sh"
+    }
+    Write-Host "Sync completed."
+}
+finally {
+    Remove-Item $archive -ErrorAction SilentlyContinue
+}

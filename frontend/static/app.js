@@ -1,331 +1,297 @@
-// State
-let selectedSpeaker = null;
-let currentVideoInfo = null;
+const $ = (id) => document.getElementById(id);
+
+const els = {
+  status: $('service-status'),
+  speakers: $('speakers-list'),
+  refresh: $('refresh-speakers-btn'),
+  form: $('url-form'),
+  url: $('yt-url'),
+  clear: $('clear-btn'),
+  paste: $('paste-btn'),
+  preview: $('video-preview'),
+  thumb: $('preview-thumb'),
+  title: $('preview-title'),
+  channel: $('preview-channel'),
+  play: $('play-btn'),
+  playText: $('play-btn-text'),
+  toggle: $('btn-toggle'),
+  iconPlay: $('icon-play'),
+  iconPause: $('icon-pause'),
+  stop: $('btn-stop'),
+  volume: $('volume-slider'),
+  volumeVal: $('volume-val'),
+  pulse: $('playback-pulse'),
+  npTitle: $('np-title'),
+  npSub: $('np-sub'),
+  toast: $('toast'),
+};
+
+const STORAGE_KEY = 'pi-sonos-speaker';
+const ID_RE = /(?:[?&]v=|youtu\.be\/|\/(?:shorts|embed|live)\/)([\w-]{11})/;
+
+let speakers = [];
+let selected = null;          // { name, ip, uid }
+let videoId = null;
+let infoRequest = 0;
+let playerState = 'IDLE';
+let volumeTimer = null;
+let volumeTouchedAt = 0;
 let pollTimer = null;
-let volumeDebounceTimer = null;
+let toastTimer = null;
 
-// DOM Elements
-const serviceStatusEl = document.getElementById('service-status');
-const alertBannerEl = document.getElementById('alert-banner');
-const speakersListEl = document.getElementById('speakers-list');
-const speakersLoadingEl = document.getElementById('speakers-loading');
-const refreshSpeakersBtn = document.getElementById('refresh-speakers-btn');
-
-const ytUrlInput = document.getElementById('yt-url');
-const loadInfoBtn = document.getElementById('load-info-btn');
-const videoPreviewEl = document.getElementById('video-preview');
-const previewThumbnailEl = document.getElementById('preview-thumbnail');
-const previewTitleEl = document.getElementById('preview-title');
-const previewChannelEl = document.getElementById('preview-channel');
-const previewDurationEl = document.getElementById('preview-duration');
-
-const playBtn = document.getElementById('play-btn');
-const playBtnText = document.getElementById('play-btn-text');
-
-const speakerControlsPanel = document.getElementById('speaker-controls-panel');
-const volumeSlider = document.getElementById('volume-slider');
-const volumeValEl = document.getElementById('volume-val');
-const btnPause = document.getElementById('btn-pause');
-const btnResume = document.getElementById('btn-resume');
-const btnStop = document.getElementById('btn-stop');
-
-const playbackPulse = document.getElementById('playback-pulse');
-const playbackStateBadge = document.getElementById('playback-state-badge');
-const npTitleEl = document.getElementById('np-title');
-const npSpeakerEl = document.getElementById('np-speaker');
-
-
-// Helper: Show Alert
-function showAlert(message, type = 'error', timeout = 6000) {
-  alertBannerEl.textContent = message;
-  alertBannerEl.className = `alert-banner ${type}`;
-  alertBannerEl.classList.remove('hidden');
-
-  if (timeout) {
-    setTimeout(() => {
-      alertBannerEl.classList.add('hidden');
-    }, timeout);
-  }
+// ---------- helpers ----------
+function parseVideoId(text) {
+  text = (text || '').trim();
+  if (/^[\w-]{11}$/.test(text)) return text;
+  const m = text.match(ID_RE);
+  return m ? m[1] : null;
 }
 
-function clearAlert() {
-  alertBannerEl.classList.add('hidden');
+function toast(message, type = 'error', ms = 4000) {
+  els.toast.textContent = message;
+  els.toast.className = `toast ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.add('hidden'), ms);
 }
 
+async function api(path, body) {
+  const opts = body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : {};
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== 'ok') throw new Error(data.message || `Request failed (${res.status})`);
+  return data;
+}
 
-// Check Health
+function setVolumeUI(v) {
+  if (v === null || v === undefined) return;
+  els.volume.value = v;
+  els.volume.style.setProperty('--fill', `${v}%`);
+  els.volumeVal.textContent = v;
+}
+
+// ---------- health ----------
 async function checkHealth() {
   try {
-    const res = await fetch('/api/health');
-    if (res.ok) {
-      serviceStatusEl.textContent = 'Online';
-      serviceStatusEl.className = 'badge badge-online';
-    } else {
-      throw new Error();
-    }
-  } catch (err) {
-    serviceStatusEl.textContent = 'Offline';
-    serviceStatusEl.className = 'badge badge-offline';
+    await api('/api/health');
+    els.status.className = 'status-dot online';
+    els.status.title = 'Online';
+  } catch {
+    els.status.className = 'status-dot offline';
+    els.status.title = 'Offline';
   }
 }
 
+// ---------- speakers ----------
+function renderSpeakers() {
+  els.speakers.replaceChildren();
+  if (!speakers.length) {
+    const div = document.createElement('div');
+    div.className = 'empty';
+    div.textContent = 'No speakers found. Make sure they are on the same network, then rescan.';
+    els.speakers.append(div);
+    return;
+  }
+  for (const sp of speakers) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.setAttribute('role', 'radio');
+    chip.setAttribute('aria-checked', String(selected?.uid === sp.uid));
+    chip.textContent = sp.name;
+    chip.addEventListener('click', () => selectSpeaker(sp));
+    els.speakers.append(chip);
+  }
+}
 
-// Load Sonos Speakers
 async function loadSpeakers(force = false) {
-  speakersLoadingEl.classList.remove('hidden');
-  speakersListEl.innerHTML = '';
-
+  els.refresh.classList.add('spinning');
   try {
-    const res = await fetch(`/api/speakers?force=${force}`);
-    const data = await res.json();
-
-    speakersLoadingEl.classList.add('hidden');
-
-    if (data.status !== 'ok' || !data.speakers || data.speakers.length === 0) {
-      speakersListEl.innerHTML = '<div class="np-sub">No Sonos speakers discovered. Ensure they are powered on and on this Wi-Fi/LAN.</div>';
-      return;
-    }
-
-    data.speakers.forEach(sp => {
-      const item = document.createElement('div');
-      item.className = 'speaker-item';
-      if (selectedSpeaker && selectedSpeaker.ip === sp.ip) {
-        item.classList.add('selected');
-        selectedSpeaker = sp; // update state
-      }
-
-      item.innerHTML = `
-        <div>
-          <div class="speaker-name">${sp.name}</div>
-          <div class="speaker-ip">${sp.ip}</div>
-        </div>
-        <div class="speaker-state">${sp.state || ''}</div>
-      `;
-
-      item.addEventListener('click', () => selectSpeaker(sp));
-      speakersListEl.appendChild(item);
-    });
-
-    // Auto-select first speaker if none selected
-    if (!selectedSpeaker && data.speakers.length > 0) {
-      selectSpeaker(data.speakers[0]);
-    }
+    const data = await api(`/api/speakers?force=${force}`);
+    speakers = data.speakers || [];
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const match = speakers.find(s => s.uid === selected?.uid)
+      || speakers.find(s => s.uid === saved)
+      || (speakers.length === 1 ? speakers[0] : null);
+    renderSpeakers();
+    if (match) selectSpeaker(match);
   } catch (err) {
-    speakersLoadingEl.classList.add('hidden');
-    showAlert(`Failed to discover Sonos speakers: ${err.message}`);
+    speakers = [];
+    renderSpeakers();
+    toast(`Speaker discovery failed: ${err.message}`);
+  } finally {
+    els.refresh.classList.remove('spinning');
   }
 }
 
-
-// Select a Speaker
-function selectSpeaker(speaker) {
-  selectedSpeaker = speaker;
-
-  // Update UI selection
-  const items = speakersListEl.querySelectorAll('.speaker-item');
-  items.forEach(el => {
-    if (el.querySelector('.speaker-name').textContent === speaker.name) {
-      el.classList.add('selected');
-    } else {
-      el.classList.remove('selected');
-    }
+function selectSpeaker(sp) {
+  selected = sp;
+  localStorage.setItem(STORAGE_KEY, sp.uid);
+  els.speakers.querySelectorAll('.chip').forEach((chip, i) => {
+    chip.setAttribute('aria-checked', String(speakers[i]?.uid === sp.uid));
   });
-
-  // Enable controls panel
-  speakerControlsPanel.classList.remove('disabled');
-  volumeSlider.value = speaker.volume || 20;
-  volumeValEl.textContent = speaker.volume || 20;
-
+  els.volume.disabled = false;
+  els.toggle.disabled = false;
+  els.stop.disabled = false;
+  els.npSub.textContent = sp.name;
   updatePlayButton();
-  updateNowPlaying(speaker);
+  pollStatus();
 }
 
-
-// Update Play Button State
+// ---------- video ----------
 function updatePlayButton() {
-  if (!selectedSpeaker) {
-    playBtn.disabled = true;
-    playBtnText.textContent = '1. Select a Sonos speaker';
-  } else if (!ytUrlInput.value.trim()) {
-    playBtn.disabled = true;
-    playBtnText.textContent = '2. Paste a YouTube URL';
-  } else {
-    playBtn.disabled = false;
-    playBtnText.textContent = `▶ Play on ${selectedSpeaker.name}`;
-  }
+  els.play.disabled = !(selected && videoId);
+  if (!selected) els.playText.textContent = 'Select a speaker';
+  else if (!videoId) els.playText.textContent = 'Paste a YouTube link';
+  else els.playText.textContent = `Play on ${selected.name}`;
 }
 
+async function onUrlChanged() {
+  const raw = els.url.value;
+  els.clear.classList.toggle('hidden', !raw);
+  els.paste.classList.toggle('hidden', !!raw || !navigator.clipboard?.readText);
 
-// Load Video Info
-async function fetchVideoInfo() {
-  const url = ytUrlInput.value.trim();
-  if (!url) return;
-
-  clearAlert();
-  loadInfoBtn.disabled = true;
-  loadInfoBtn.textContent = 'Loading...';
-
-  try {
-    const res = await fetch('/api/info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-    const data = await res.json();
-
-    if (data.status !== 'ok') {
-      throw new Error(data.message || 'Could not fetch video info.');
-    }
-
-    currentVideoInfo = data.info;
-    previewThumbnailEl.src = currentVideoInfo.thumbnail || '';
-    previewTitleEl.textContent = currentVideoInfo.title;
-    previewChannelEl.textContent = currentVideoInfo.channel;
-    previewDurationEl.textContent = currentVideoInfo.duration_formatted;
-    videoPreviewEl.classList.remove('hidden');
-
-    updatePlayButton();
-  } catch (err) {
-    videoPreviewEl.classList.add('hidden');
-    showAlert(err.message);
-  } finally {
-    loadInfoBtn.disabled = false;
-    loadInfoBtn.textContent = 'Fetch Info';
-  }
-}
-
-
-// Play Audio on Speaker
-async function startPlayback() {
-  if (!selectedSpeaker || !ytUrlInput.value.trim()) return;
-
-  clearAlert();
-  playBtn.disabled = true;
-  playBtnText.textContent = 'Starting stream on Sonos...';
-
-  try {
-    const res = await fetch('/api/play', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        speaker: selectedSpeaker.ip,
-        url: ytUrlInput.value.trim()
-      })
-    });
-    const data = await res.json();
-
-    if (data.status !== 'ok') {
-      throw new Error(data.message || 'Playback failed.');
-    }
-
-    showAlert(`Playing "${data.track.title}" on ${selectedSpeaker.name}`, 'success');
-    updateNowPlaying(data.speaker, data.track);
-  } catch (err) {
-    showAlert(`Playback error: ${err.message}`);
-  } finally {
-    updatePlayButton();
-  }
-}
-
-
-// Send Transport Control
-async function sendControl(action, value = null) {
-  if (!selectedSpeaker) return;
-
-  try {
-    const res = await fetch('/api/control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        speaker: selectedSpeaker.ip,
-        action: action,
-        value: value
-      })
-    });
-    const data = await res.json();
-
-    if (data.status === 'ok') {
-      updateNowPlaying(data.speaker);
-    }
-  } catch (err) {
-    showAlert(`Control error: ${err.message}`);
-  }
-}
-
-
-// Update Now Playing Display
-function updateNowPlaying(speaker, track = null) {
-  if (!speaker) return;
-
-  const state = speaker.state || 'IDLE';
-  playbackStateBadge.textContent = state;
-
-  if (state === 'PLAYING') {
-    playbackStateBadge.className = 'badge badge-playing';
-    playbackPulse.classList.add('active');
-  } else {
-    playbackStateBadge.className = 'badge badge-idle';
-    playbackPulse.classList.remove('active');
-  }
-
-  npSpeakerEl.textContent = `Speaker: ${speaker.name} (${speaker.ip})`;
-
-  const curTrack = track || speaker.current_track;
-  if (curTrack && curTrack.title) {
-    npTitleEl.textContent = `${curTrack.title} — ${curTrack.artist || 'YouTube'}`;
-  } else if (state === 'STOPPED') {
-    npTitleEl.textContent = 'Playback stopped';
-  }
-}
-
-
-// Poll Active Speaker Status
-async function pollSpeakerStatus() {
-  if (!selectedSpeaker) return;
-
-  try {
-    const res = await fetch(`/api/status?speaker=${encodeURIComponent(selectedSpeaker.ip)}`);
-    const data = await res.json();
-    if (data.status === 'ok') {
-      selectedSpeaker = data.speaker;
-      updateNowPlaying(data.speaker);
-    }
-  } catch (e) {
-    // Silent fail on routine poll
-  }
-}
-
-
-// Event Listeners
-refreshSpeakersBtn.addEventListener('click', () => loadSpeakers(true));
-
-ytUrlInput.addEventListener('input', () => {
+  const id = parseVideoId(raw);
+  if (id === videoId) return;
+  videoId = id;
   updatePlayButton();
+
+  if (!id) {
+    els.preview.classList.add('hidden');
+    return;
+  }
+
+  // Thumbnail is loaded by the phone directly from YouTube's CDN (no Pi work)
+  els.thumb.src = `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+  els.title.textContent = 'Loading title…';
+  els.channel.textContent = '';
+  els.preview.classList.add('loading');
+  els.preview.classList.remove('hidden');
+
+  const req = ++infoRequest;
+  try {
+    const { info } = await api('/api/info', { url: id });
+    if (req !== infoRequest) return;
+    els.title.textContent = info.title;
+    els.channel.textContent = info.channel || '';
+  } catch {
+    if (req !== infoRequest) return;
+    els.title.textContent = 'YouTube video';
+  } finally {
+    if (req === infoRequest) els.preview.classList.remove('loading');
+  }
+}
+
+async function startPlayback(e) {
+  e?.preventDefault();
+  if (!selected || !videoId) return;
+
+  els.play.disabled = true;
+  els.play.classList.add('busy');
+  els.playText.textContent = 'Starting…';
+  try {
+    const data = await api('/api/play', { speaker: selected.ip, url: videoId });
+    renderStatus(data.speaker, data.track);
+    toast(`Playing on ${selected.name}`, 'success', 2500);
+    els.url.blur();
+  } catch (err) {
+    toast(`Playback failed: ${err.message}`);
+  } finally {
+    els.play.classList.remove('busy');
+    updatePlayButton();
+  }
+}
+
+// ---------- transport ----------
+async function sendControl(action, value) {
+  if (!selected) return;
+  try {
+    const data = await api('/api/control', { speaker: selected.ip, action, value });
+    renderStatus(data.speaker);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function renderStatus(sp, track) {
+  if (!sp) return;
+  playerState = sp.state || 'IDLE';
+  const playing = playerState === 'PLAYING' || playerState === 'TRANSITIONING';
+
+  els.pulse.classList.toggle('active', playing);
+  els.iconPlay.classList.toggle('hidden', playing);
+  els.iconPause.classList.toggle('hidden', !playing);
+
+  const t = track || sp.current_track || {};
+  els.npTitle.textContent = t.title || (playerState === 'STOPPED' ? 'Stopped' : 'Nothing playing');
+  const stateLabel = { PLAYING: 'Playing', PAUSED_PLAYBACK: 'Paused', STOPPED: 'Stopped', TRANSITIONING: 'Buffering…' }[playerState] || '';
+  els.npSub.textContent = [sp.name, stateLabel].filter(Boolean).join(' · ');
+
+  // Don't fight the user while they drag the slider
+  if (Date.now() - volumeTouchedAt > 1500) setVolumeUI(sp.volume);
+}
+
+async function pollStatus() {
+  if (!selected || document.hidden) return;
+  try {
+    const data = await api(`/api/status?speaker=${encodeURIComponent(selected.ip)}`);
+    renderStatus(data.speaker);
+  } catch { /* transient */ }
+}
+
+function startPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollStatus, 5000);
+}
+
+// ---------- events ----------
+els.refresh.addEventListener('click', () => loadSpeakers(true));
+els.form.addEventListener('submit', startPlayback);
+els.url.addEventListener('input', onUrlChanged);
+
+els.clear.addEventListener('click', () => {
+  els.url.value = '';
+  onUrlChanged();
+  els.url.focus();
 });
 
-ytUrlInput.addEventListener('paste', () => {
-  setTimeout(fetchVideoInfo, 100);
+els.paste.addEventListener('click', async () => {
+  try {
+    els.url.value = await navigator.clipboard.readText();
+    onUrlChanged();
+  } catch {
+    els.url.focus();
+  }
 });
 
-loadInfoBtn.addEventListener('click', fetchVideoInfo);
-playBtn.addEventListener('click', startPlayback);
+els.toggle.addEventListener('click', () => {
+  sendControl(playerState === 'PLAYING' ? 'pause' : 'play');
+});
+els.stop.addEventListener('click', () => sendControl('stop'));
 
-btnPause.addEventListener('click', () => sendControl('pause'));
-btnResume.addEventListener('click', () => sendControl('play'));
-btnStop.addEventListener('click', () => sendControl('stop'));
-
-volumeSlider.addEventListener('input', (e) => {
-  const val = parseInt(e.target.value, 10);
-  volumeValEl.textContent = val;
-
-  clearTimeout(volumeDebounceTimer);
-  volumeDebounceTimer = setTimeout(() => {
-    sendControl('volume', val);
-  }, 250);
+els.volume.addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10);
+  volumeTouchedAt = Date.now();
+  setVolumeUI(v);
+  clearTimeout(volumeTimer);
+  volumeTimer = setTimeout(() => sendControl('volume', v), 250);
 });
 
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { checkHealth(); pollStatus(); }
+});
 
-// Initialization
+// ---------- init ----------
+// Allow sharing links via e.g. http://<pi>:5000/?url=<youtube link> (bookmarklets / phone shortcuts)
+const params = new URLSearchParams(location.search);
+const shared = params.get('url') || params.get('text') || params.get('v');
+if (shared) {
+  els.url.value = shared;
+  history.replaceState(null, '', location.pathname);
+}
+
+onUrlChanged();
 checkHealth();
 loadSpeakers();
-setInterval(pollSpeakerStatus, 4000);
+startPolling();
